@@ -165,21 +165,40 @@ static void eventsHandler() {
     SDL_PumpEvents();
 }
 
-static inline unsigned char checkBoxCollision(SDL_FRect a, SDL_FRect b) {
+static inline unsigned char collision_box(SDL_FRect a, SDL_FRect b) {
     return (a.x < b.x+b.w   && // crossing X
             a.x + a.w > b.x && // ----------
             a.y < b.y+b.h   && // crossing Y
             a.y+a.h > b.y);    // ----------
 }
 
-static inline unsigned char directionCollision(SDL_FRect r1, SDL_FRect r2) {
+static inline unsigned char collision_direction(SDL_FRect r1, SDL_FRect r2) {
     float top = r1.y;
+    float bottom = r1.y+r1.h;
     float higher = r2.y;
     float downer = r2.y+r2.h;
+    float lefter = r1.x;
+    float righter = r1.x+r1.w;
+    float xdot = r2.x;
+    float ydot = r2.y;
+    float xdotfinnish = r2.x+r2.w;
     
-    if (higher < top && top < downer) {
-        debug("R2 saying: I'm on top")
+    if (higher < top && top < downer && lefter < xdot && xdot < righter) {
+        debug("R2 saying: I'm on top");
+    } 
+    
+    if (top < ydot && ydot < bottom && xdot < righter && righter < xdotfinnish ) {
+        debug("R2 saying: I'm on Right");
     }
+
+    if (top < ydot && ydot < bottom && xdot < lefter && lefter < xdotfinnish) {
+        debug("R2 saying: I'm on Left");
+    }
+
+    if (higher < bottom && bottom < downer && lefter < xdot && xdot < righter) {
+        debug("R2 saying: I'm on Bottom");
+    }
+
     return UP;
 } 
 
@@ -292,7 +311,7 @@ static void player_check_ball_colission() {
         
         for (size_t i = 0; i < length(game.players); i++) {
             Player *player = &game.players[i];
-            if (checkBoxCollision(player->sprite, ball->sprite)) {
+            if (collision_box(player->sprite, ball->sprite)) {
                 if (ball->sprite.y > player->sprite.y+(player->sprite.h/2)) {
                     ball->dirs[1] = DOWN; // ball up collision
                     // player on top ball on bottom
@@ -303,7 +322,7 @@ static void player_check_ball_colission() {
                     // ball->sprite.y = player->sprite.y - ball->sprite.h;
                 };
                 if (ball->sprite.x+(ball->sprite.w*0.5) > player->sprite.x+(player->sprite.w*0.5)) { // ball left collision
-                    ball->dirs[0] = LEFT;
+                    ball->dirs[0] = RIGHT;
                     // player on left ball on right
                     // ball->sprite.x = player->sprite.x+player->sprite.w;
                 }
@@ -311,14 +330,6 @@ static void player_check_ball_colission() {
                     ball->dirs[0] = LEFT;
                     // ball->sprite.x = player->sprite.x - ball->sprite.w;
                 }
-
-                if (ball->sprite.y + ball->sprite.h > player->sprite.y ) {
-                    debug("ball-down: %f, player-up: %f ", ball->sprite.y+ball->sprite.h, player->sprite.y);
-                } 
-                if (ball->sprite.y > player->sprite.y + player->sprite.h) {
-                    debug("ball-up: %f, player-down: %f ", ball->sprite.y, player->sprite.y+player->sprite.h);
-                } 
-
             }
         }
     }
@@ -351,6 +362,7 @@ int main(int argc, char *argv[]) {
         
         players_move_event();
         player_check_ball_colission();
+        collision_direction(game.players[0].sprite, game.balls[0].sprite);
         ball_move();
 
 
