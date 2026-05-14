@@ -71,11 +71,17 @@ typedef enum {
     LEFT,
     RIGHT,
     FREEZE,
-} Direction;
+} Direction2d;
+
+
+typedef struct {
+    Direction2d x;
+    Direction2d y;
+} Directions2d;
 
 typedef struct Player {
     uint8_t life;
-    Direction dir;
+    Direction2d dir;
     SDL_FRect sprite;
     Color color;
     float velocity;
@@ -83,7 +89,7 @@ typedef struct Player {
 
 typedef struct Ball {
     SDL_FRect sprite;
-    Direction dirs[2];
+    Directions2d dirs;
     Color color;
     int velocity[2];
 } Ball;
@@ -102,15 +108,15 @@ static struct {
 static inline int pick_random(int from, int to) {
     return rand() % (to-from) + from; 
 }   
-static inline const Direction direction_pick_random() {
+static inline const Direction2d direction_pick_random() {
     return pick_random(0, FREEZE);
 }
 
-static inline const Direction direction_pick_randomX() {
+static inline const Direction2d direction_pick_randomX() {
     return pick_random(LEFT, FREEZE);
 }
 
-static inline const Direction direction_pick_randomY() {
+static inline const Direction2d direction_pick_randomY() {
     return pick_random(UP, LEFT);
 }
 
@@ -172,7 +178,7 @@ static inline unsigned char collision_box(SDL_FRect a, SDL_FRect b) {
             a.y+a.h > b.y);    // ----------
 }
 
-static inline unsigned char collision_direction(SDL_FRect r1, SDL_FRect r2) {
+static inline void collision_direction(SDL_FRect r1, SDL_FRect r2, Directions2d *dirs, unsigned char reverse) {
     float top = r1.y;
     float bottom = r1.y+r1.h;
     float higher = r2.y;
@@ -185,21 +191,23 @@ static inline unsigned char collision_direction(SDL_FRect r1, SDL_FRect r2) {
     
     if ((xdot < lefter && lefter < xdotfinnish) || (lefter < xdot && xdot < righter)) {
         if (higher < top && top < downer) {
-            debug("R2 saying: I'm on top");
+            // debug("R2 saying: I'm on top");
+            dirs->y = UP + reverse; 
         } else if (higher < bottom && bottom < downer) {
-            debug("R2 saying: I'm on Bottom");
-        } else {
+            // debug("R2 saying: I'm on Bottom");
+            dirs->y = DOWN - reverse;
         }
     }
 
     if ((top < higher && higher < bottom) || (higher < top && top < downer)) {
         if (xdot < righter && righter < xdotfinnish) {
-            debug("R2 saying: I'm on Right");
+            // debug("R2 saying: I'm on Right");
+            dirs->x = RIGHT - reverse;
         } else if (xdot < lefter && lefter < xdotfinnish) {
-            debug("R2 saying: I'm on Left");
+            // debug("R2 saying: I'm on Left");
+            dirs->x = LEFT + reverse;
         } 
     }
-
 
     // if (higher < top && top < downer && ((xdot < lefter && lefter < xdotfinnish) || (lefter < xdot && xdot < righter))) {
     //     debug("R2 saying: I'm on top");
@@ -216,8 +224,6 @@ static inline unsigned char collision_direction(SDL_FRect r1, SDL_FRect r2) {
     // if (((top < higher && higher < bottom) || (higher < top && top < downer)) && xdot < lefter && lefter < xdotfinnish) {
     //     debug("R2 saying: I'm on Left");
     // }
-
-    return UP;
 } 
 
 static void game_create_balls() {
@@ -274,8 +280,8 @@ static void ball_reset() {
         Ball *ball = &game.balls[i]; 
         ball->sprite.x = (game.width/2)  - ball->sprite.w; // position at middle  
         ball->sprite.y = (game.height/2) - ball->sprite.h;
-        ball->dirs[0] = do_180(ball->dirs[0]);
-        ball->dirs[1] = ~(ball->dirs[1]^-2);
+        ball->dirs.x = do_180(ball->dirs.x);
+        ball->dirs.y = ~(ball->dirs.y^-2);
         ball->velocity[0] = 5;
         ball->velocity[1] = 5;
     }
@@ -286,71 +292,82 @@ static void ball_move() {
     for (int i = 0; i < length(game.balls); i++) {
         Ball *ball = &game.balls[i];
         
-        if (ball->sprite.y <= 0) {
-            ball->dirs[1] = DOWN;
-        } else if (ball->sprite.y+ball->sprite.h >= game.height) {
-            ball->dirs[1] = UP;
-        }
+        // if (ball->sprite.y <= 0) {
+        //     ball->dirs.y = DOWN;
+        // } else if (ball->sprite.y+ball->sprite.h >= game.height) {
+        //     ball->dirs.y = UP;
+        // }
         
-        if (ball->sprite.x <= 0) {
-            // ball_reset();
-            ball->dirs[0] = RIGHT;
+        // if (ball->sprite.x <= 0) {
+        //     // ball_reset();
+        //     ball->dirs.x = RIGHT;
 
-        } else if (ball->sprite.x+ball->sprite.w >= game.width) {
-            // ball_reset();
-            ball->dirs[0] = LEFT;
+        // } else if (ball->sprite.x+ball->sprite.w >= game.width) {
+        //     // ball_reset();
+        //     ball->dirs.x = LEFT;
+        // } deprecated???
+
+        collision_direction((SDL_FRect){.x = 0, .y = 0, .w = game.width, .h = game.height }, ball->sprite, &ball->dirs, 1);
+        
+        switch (ball->dirs.x)
+        {
+        case LEFT:
+            ball->sprite.x -= ball->velocity[0];
+            break;
+        case RIGHT:
+            ball->sprite.x += ball->velocity[0];
+            break;
+        default:
+            break;
+        }
+        switch (ball->dirs.y)
+        {
+        case UP:
+            ball->sprite.y -= ball->velocity[1];
+            break;
+        case DOWN:
+            ball->sprite.y += ball->velocity[1];
+            break;
+        default:
+            break;
         }
         
-        for (int i = 0; i < length(ball->dirs); i++) {
-            switch (ball->dirs[i])
-            {
-                case UP:
-                ball->sprite.y -= ball->velocity[1];
-                break;
-                case LEFT:
-                ball->sprite.x -= ball->velocity[0];
-                break;
-                case RIGHT:
-                ball->sprite.x += ball->velocity[0];
-                break;
-                case DOWN:
-                ball->sprite.y += ball->velocity[1];
-                break;
-                default:
-                break;
-            }
-        }
     }
 }
 
 static void player_check_ball_colission() {
-    for (size_t i = 0; i < length(game.balls); i++) {
-        Ball *ball = &game.balls[i]; 
+    // for (size_t i = 0; i < length(game.balls); i++) {
+    //     Ball *ball = &game.balls[i]; 
         
-        for (size_t i = 0; i < length(game.players); i++) {
-            Player *player = &game.players[i];
-            if (collision_box(player->sprite, ball->sprite)) {
-                if (ball->sprite.y > player->sprite.y+(player->sprite.h/2)) {
-                    ball->dirs[1] = DOWN; // ball up collision
-                    // player on top ball on bottom
-                    // ball->sprite.y = player->sprite.y + player->sprite.h;
-                }
-                else {
-                    ball->dirs[1] = UP;
-                    // ball->sprite.y = player->sprite.y - ball->sprite.h;
-                };
-                if (ball->sprite.x+(ball->sprite.w*0.5) > player->sprite.x+(player->sprite.w*0.5)) { // ball left collision
-                    ball->dirs[0] = RIGHT;
-                    // player on left ball on right
-                    // ball->sprite.x = player->sprite.x+player->sprite.w;
-                }
-                else {
-                    ball->dirs[0] = LEFT;
-                    // ball->sprite.x = player->sprite.x - ball->sprite.w;
-                }
-            }
+    //     for (size_t i = 0; j < length(game.players); i++) {
+    //         Player *player = &game.players[j];
+    //         if (collision_box(player->sprite, ball->sprite)) {
+    //             if (ball->sprite.y > player->sprite.y+(player->sprite.h/2)) {
+    //                 ball->dirs.y = DOWN; // ball up collision
+    //                 // player on top ball on bottom
+    //                 // ball->sprite.y = player->sprite.y + player->sprite.h;
+    //             }
+    //             else {
+    //                 ball->dirs.y = UP;
+    //             };
+    //             if (ball->sprite.x+(ball->sprite.w*0.5) > player->sprite.x+(player->sprite.w*0.5)) { // ball left collision
+    //                 ball->dirs.x = RIGHT;
+    //             }
+    //             else {
+    //                 ball->dirs.x = LEFT;
+    //             }
+    //         }
+    //     }
+    // }
+
+    for (size_t i = 0; i < length(game.balls); i++) {
+        Ball *ball = &game.balls[i];
+        for (size_t j = 0; j < length(game.players); j++) {
+            Player * player = &game.players[j];
+            collision_direction(player->sprite, ball->sprite, &game.balls->dirs, 0);
         }
     }
+    
 
 } 
 
@@ -380,7 +397,6 @@ int main(int argc, char *argv[]) {
         
         players_move_event();
         player_check_ball_colission();
-        collision_direction(game.players[0].sprite, game.balls[0].sprite);
         ball_move();
 
 
