@@ -183,22 +183,39 @@ static inline unsigned char collision_direction(SDL_FRect r1, SDL_FRect r2) {
     float ydot = r2.y;
     float xdotfinnish = r2.x+r2.w;
     
-    if (higher < top && top < downer && ((xdot < lefter && lefter < xdotfinnish) || (lefter < xdot && xdot < righter))) {
-        debug("R2 saying: I'm on top");
+    if ((xdot < lefter && lefter < xdotfinnish) || (lefter < xdot && xdot < righter)) {
+        if (higher < top && top < downer) {
+            debug("R2 saying: I'm on top");
+        } else if (higher < bottom && bottom < downer) {
+            debug("R2 saying: I'm on Bottom");
+        } else {
+        }
     }
 
-    if (higher < bottom && bottom < downer && ((lefter < xdot && xdot < righter) || (xdot < lefter && lefter < xdotfinnish))) {
-        debug("R2 saying: I'm on Bottom");
+    if ((top < higher && higher < bottom) || (higher < top && top < downer)) {
+        if (xdot < righter && righter < xdotfinnish) {
+            debug("R2 saying: I'm on Right");
+        } else if (xdot < lefter && lefter < xdotfinnish) {
+            debug("R2 saying: I'm on Left");
+        } 
     }
 
-    if (((top < higher && higher < bottom) || (higher < top && top < downer )) && (xdot < righter && righter < xdotfinnish)) {
-        debug("R2 saying: I'm on Right");
-    }
 
-    if (((top < higher && higher < bottom) || (higher < top && top < downer)) && xdot < lefter && lefter < xdotfinnish) {
-        debug("R2 saying: I'm on Left");
-    }
+    // if (higher < top && top < downer && ((xdot < lefter && lefter < xdotfinnish) || (lefter < xdot && xdot < righter))) {
+    //     debug("R2 saying: I'm on top");
+    // }
 
+    // if (higher < bottom && bottom < downer && ((lefter < xdot && xdot < righter) || (xdot < lefter && lefter < xdotfinnish))) {
+    //     debug("R2 saying: I'm on Bottom");
+    // }
+
+    // if (((top < higher && higher < bottom) || (higher < top && top < downer )) && (xdot < righter && righter < xdotfinnish)) {
+    //     debug("R2 saying: I'm on Right");
+    // }
+
+    // if (((top < higher && higher < bottom) || (higher < top && top < downer)) && xdot < lefter && lefter < xdotfinnish) {
+    //     debug("R2 saying: I'm on Left");
+    // }
 
     return UP;
 } 
