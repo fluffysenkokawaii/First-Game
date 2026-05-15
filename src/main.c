@@ -6,93 +6,9 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/param.h>
+#include <SDL3_ttf/SDL_ttf.h>
 
-#define SEC_IN_NANO 1000000000
-#define FPS 60 
-#define DELTA_TIME SEC_IN_NANO / FPS
-#define DEFAULT_WIDTH 640
-#define DEFAULT_HEIGHT 480
-
-#define do_180(dir) ~(dir^-2) // change direction without ifelse lol super risk
-
-#define BALL_QUANTITY 1
-
-#define panic(format, ...) fprintf(stderr, "[ERROR] " format "\n", ##__VA_ARGS__); exit(EXIT_FAILURE)
-#define debug(format, ...) fprintf(stderr, "[DEBUG] " format "\n", ##__VA_ARGS__)
-
-#define length(arr) sizeof(arr)/sizeof(arr[0])
-
-static const uint64_t getTimeInNano() {
-    struct timespec time;
-    clock_gettime(CLOCK_MONOTONIC, &time);
-    return (SEC_IN_NANO * time.tv_sec) + time.tv_nsec;
-}
-
-
-typedef struct { 
-    unsigned char r;
-    unsigned char g;
-    unsigned char b;
-    unsigned char a;
-} Color;
-
-#define color(r, g, b, a) (Color){r, g, b, a}
-
-static const Color colors[] = {
-    color(0xff, 0xff, 0xff, 0xff),
-    color(0xff, 0, 0, 0xff),
-    color(0, 0xff, 0, 0xff),
-    color(0, 0, 0xff, 0xff),
-    color(0xff, 0xff, 0, 0xff),
-    color(0xdd, 0xaa, 0xcc, 0xff),
-    color(0xcc, 0xcc, 0xcc, 0xff),
-    color(0x18, 0x18, 0x18, 0xff),
-    color(0, 0, 0, 0xff),
-    color(0xAA, 0xDD, 0, 0xff),
-};
-
-#define BACKGROUND colors[0]
-#define RED colors[1]
-#define GREEN colors[2]
-#define BLUE  colors[3]
-#define YELLOW colors[4]
-
-
-#define sdl_color(color) color.r, color.g, color.b, color.a
-
-typedef struct {
-    float x;
-    float y;
-} Point;
-
-typedef enum {
-    UP,
-    DOWN,
-    LEFT,
-    RIGHT,
-    FREEZE,
-} Direction2d;
-
-
-typedef struct {
-    Direction2d x;
-    Direction2d y;
-} Directions2d;
-
-typedef struct Player {
-    uint8_t life;
-    Direction2d dir;
-    SDL_FRect sprite;
-    Color color;
-    float velocity;
-} Player;
-
-typedef struct Ball {
-    SDL_FRect sprite;
-    Directions2d dirs;
-    Color color;
-    int velocity[2];
-} Ball;
+#include "config.h"
 
 static struct {
     SDL_Window *window;
@@ -103,14 +19,25 @@ static struct {
     const uint8_t *key_states;
     int width;
     int height;
+    TTF_Font* font;
+    SDL_Texture *score;
+    Sound sound;
+    SDL_AudioStream* audio_stream; 
+    SDL_AudioSpec audio_spec;
+    SDL_Texture * texture_buffer[10];
 } game = {0};
+
+static inline Color color_pick_random() {
+    return colors[rand() % (length(colors) - 1) + 1];
+}
 
 static inline int pick_random(int from, int to) {
     return rand() % (to-from) + from; 
 }   
-static inline const Direction2d direction_pick_random() {
-    return pick_random(0, FREEZE);
-}
+
+// static inline const Direction2d direction_pick_random() {
+//     return pick_random(0, FREEZE);
+// }
 
 static inline const Direction2d direction_pick_randomX() {
     return pick_random(LEFT, FREEZE);
@@ -120,8 +47,13 @@ static inline const Direction2d direction_pick_randomY() {
     return pick_random(UP, LEFT);
 }
 
-static inline Color color_pick_random() {
-    return colors[rand() % (length(colors) - 1) + 1];
+
+
+
+static const uint64_t getTimeInNano() {
+    struct timespec time;
+    clock_gettime(CLOCK_MONOTONIC, &time);
+    return (SEC_IN_NANO * time.tv_sec) + time.tv_nsec;
 }
 
 
@@ -129,11 +61,11 @@ static inline void player_move(Player * const p, const SDL_Scancode up, const SD
     if (game.key_states[up]) {
         p->sprite.y -= p->velocity;  
     }
-
+    
     if (game.key_states[left]) { 
         p->sprite.x -= p->velocity;
     }  
-
+    
     if (game.key_states[right]) {
         p->sprite.x += p->velocity;
     }
@@ -154,31 +86,17 @@ static void players_move_event() {
 }  
 
 static void eventsHandler() {
-    // SDL_Event e;
-    // SDL_PollEvent(&e);
-    // switch (e.type)
-    // {
-    // case SDL_EVENT_QUIT:
-    //     game.running = 0;
-    //     break;
-    // case SDL_EVENT_KEY_DOWN:
-    // case SDL_EVENT_KEY_UP:
-    //     fetchState();
-    // break;
-    // default:
-    //     break;
-    // }
     SDL_PumpEvents();
 }
 
-static inline unsigned char collision_box(SDL_FRect a, SDL_FRect b) {
-    return (a.x < b.x+b.w   && // crossing X
-            a.x + a.w > b.x && // ----------
-            a.y < b.y+b.h   && // crossing Y
-            a.y+a.h > b.y);    // ----------
-}
+// static inline unsigned char collision_box(SDL_FRect a, SDL_FRect b) {
+//     return (a.x < b.x+b.w   && // crossing X
+//             a.x + a.w > b.x && // ----------
+//             a.y < b.y+b.h   && // crossing Y
+//             a.y+a.h > b.y);    // ----------
+// }
 
-static inline void collision_direction(SDL_FRect r1, SDL_FRect r2, Directions2d *dirs, unsigned char reverse) {
+static inline unsigned char collision_direction(SDL_FRect r1, SDL_FRect r2, Directions2d *dirs, unsigned char reverse) {
     float top = r1.y;
     float bottom = r1.y+r1.h;
     float higher = r2.y;
@@ -186,84 +104,135 @@ static inline void collision_direction(SDL_FRect r1, SDL_FRect r2, Directions2d 
     float lefter = r1.x;
     float righter = r1.x+r1.w;
     float xdot = r2.x;
-    float ydot = r2.y;
+    // float ydot = r2.y;
     float xdotfinnish = r2.x+r2.w;
     
+    unsigned char ret = 0;
+
     if ((xdot < lefter && lefter < xdotfinnish) || (lefter < xdot && xdot < righter)) {
         if (higher < top && top < downer) {
-            // debug("R2 saying: I'm on top");
-            dirs->y = UP + reverse; 
+            dirs->y = UP + reverse;
+            ret += 1;
         } else if (higher < bottom && bottom < downer) {
-            // debug("R2 saying: I'm on Bottom");
             dirs->y = DOWN - reverse;
+            ret += 2;
         }
     }
 
     if ((top < higher && higher < bottom) || (higher < top && top < downer)) {
         if (xdot < righter && righter < xdotfinnish) {
-            // debug("R2 saying: I'm on Right");
             dirs->x = RIGHT - reverse;
+            ret += 4; 
         } else if (xdot < lefter && lefter < xdotfinnish) {
-            // debug("R2 saying: I'm on Left");
             dirs->x = LEFT + reverse;
+            ret += 8;
         } 
     }
-
-    // if (higher < top && top < downer && ((xdot < lefter && lefter < xdotfinnish) || (lefter < xdot && xdot < righter))) {
-    //     debug("R2 saying: I'm on top");
-    // }
-
-    // if (higher < bottom && bottom < downer && ((lefter < xdot && xdot < righter) || (xdot < lefter && lefter < xdotfinnish))) {
-    //     debug("R2 saying: I'm on Bottom");
-    // }
-
-    // if (((top < higher && higher < bottom) || (higher < top && top < downer )) && (xdot < righter && righter < xdotfinnish)) {
-    //     debug("R2 saying: I'm on Right");
-    // }
-
-    // if (((top < higher && higher < bottom) || (higher < top && top < downer)) && xdot < lefter && lefter < xdotfinnish) {
-    //     debug("R2 saying: I'm on Left");
-    // }
+    return ret;
 } 
 
 static void game_create_balls() {
     for (size_t i = 0; i < BALL_QUANTITY; i++ ) {
         game.balls[i] = (Ball) { 
             .sprite = (SDL_FRect) {.w = 50, .h = 50, .x=game.width/2-50, .y=game.height/2-50 },
-            .color = color_pick_random(),
+            .color = BALLS_COLOR,
             .dirs = {direction_pick_randomX(), direction_pick_randomY()},
-            .velocity = {pick_random(1, 2), pick_random(1, 2)}
+            .velocity = {pick_random(1, 5), pick_random(1, 5)}
         };
     }
 }
 
-static void gameSetup() {
+static void game_sound_score() {
+    if (!SDL_PutAudioStreamData(game.audio_stream, game.sound.data, game.sound.size)) {
+        panic("%s", SDL_GetError());
+    }
+}
+
+static void game_refresh_score() {
+    if (game.score != NULL) {
+        SDL_DestroyTexture(game.score);
+    }
+    char score[64];
+    snprintf(score, 64, "Score: | %d : %d |", game.players[0].points, game.players[1].points);
+    SDL_Surface *sir = TTF_RenderText_Solid(game.font, score, 0, ttf_color(WHITE));
+    game.score = SDL_CreateTextureFromSurface(game.render, sir);
+    SDL_DestroySurface(sir);
+}
+
+
+static void game_register_text(const char *text, Color color, SDL_Texture** buf) {
+    if (*buf != NULL) {
+        SDL_DestroyTexture(*buf);
+    }
+    SDL_Surface *sir = TTF_RenderText_Solid(game.font, text, 0, ttf_color(color));
+    *buf = SDL_CreateTextureFromSurface(game.render, sir);
+    SDL_DestroySurface(sir);
+} 
+
+#define game_sleep(ms) usleep(MILLI_IN_MICRO * ms)
+
+
+static void game_setup() {
     int w, h = 0;
     SDL_GetWindowSize(game.window, &w, &h);
     game.width = w;
     game.height = h;
+    float pw = PLAYERS_W;
+    float ph = PLAYERS_H;
+
     game.players[0] = (Player){
         .life = 100,
         .dir = FREEZE,
-        .sprite = (SDL_FRect) {.w = 100, .h = 200, .x = w/100, .y = h/100},
-        .color = RED,
-        .velocity = 5.0f
+        .sprite = (SDL_FRect) {.w = pw, .h = ph, .x = w/100, .y = h/100},
+        .color = PLAYER_1_COLOR,
+        .velocity = PLAYERS_VELOCITY,
+        .points = 0,
     };
     game.players[1] = (Player){
         .life = 100,
         .dir = FREEZE,
-        .sprite = (SDL_FRect) {.w = 100, .h = 200, .x = w-200 , .y = h-200},
-        .color = BLUE,
-        .velocity = 5.0f
+        .sprite = (SDL_FRect) {.w = pw, .h = ph, .x = w-200 , .y = h-200},
+        .color = PLAYER_2_COLOR,
+        .velocity = PLAYERS_VELOCITY,
+        .points = 0,
     };
     game_create_balls();
+  
+    game.font = TTF_OpenFont("./fonts/DepartureMonoNerdFontPropo-Regular.otf", 32);
+    if (game.font == NULL) {
+        game.font = TTF_OpenFont("../fonts/DepartureMonoNerdFontPropo-Regular.otf", 32);
+        if (game.font == NULL) {
+            panic("Font not found\n|%s", SDL_GetError());
+        }
+    }
+
+    game_refresh_score();
+
+    game.audio_spec = (SDL_AudioSpec){
+        .channels = 1,
+        .format = SDL_AUDIO_S16,
+        .freq = 22050,
+    };
+
+    game.audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &game.audio_spec, NULL, NULL);
+    
+    if (!game.audio_stream) {
+        panic("Audio %s", SDL_GetError());
+    }
+
+    SDL_ResumeAudioStreamDevice(game.audio_stream);
+
+    if (!SDL_LoadWAV("./sounds/"AUDIO_FILE, &game.audio_spec, &game.sound.data, &game.sound.size)) {
+        if (!SDL_LoadWAV("../sounds/"AUDIO_FILE, &game.audio_spec, &game.sound.data, &game.sound.size)) {
+            panic("Audio %s", SDL_GetError());
+        }
+    };
 }
 
 static void players_draw() {
     for (size_t i = 0; i < length(game.players); i++) {
         SDL_SetRenderDrawColor(game.render, sdl_color(game.players[i].color));
         SDL_RenderFillRect(game.render, &game.players[i].sprite);
-    
     } 
 }
 
@@ -275,39 +244,35 @@ static void ball_draw() {
 }
 
 
-static void ball_reset() {
-    for (int i = 0; i < length(game.balls); i++) {
-        Ball *ball = &game.balls[i]; 
-        ball->sprite.x = (game.width/2)  - ball->sprite.w; // position at middle  
-        ball->sprite.y = (game.height/2) - ball->sprite.h;
-        ball->dirs.x = do_180(ball->dirs.x);
-        ball->dirs.y = ~(ball->dirs.y^-2);
-        ball->velocity[0] = 5;
-        ball->velocity[1] = 5;
-    }
+static void ball_reset(Ball* ball) {
+    ball->sprite.x = (game.width/2)  - ball->sprite.w; // position at middle  
+    ball->sprite.y = (game.height/2) - ball->sprite.h;
+    ball->velocity[0] = pick_random(1, 5);
+    ball->velocity[1] = pick_random(1, 5);
+    ball->color = BALLS_COLOR;
 }
 
 static void ball_move() {
 
+    const SDL_FRect game_borders = (SDL_FRect){.x = 0, .y = 0, .w = game.width, .h = game.height };
+
     for (int i = 0; i < length(game.balls); i++) {
         Ball *ball = &game.balls[i];
-        
-        // if (ball->sprite.y <= 0) {
-        //     ball->dirs.y = DOWN;
-        // } else if (ball->sprite.y+ball->sprite.h >= game.height) {
-        //     ball->dirs.y = UP;
-        // }
-        
-        // if (ball->sprite.x <= 0) {
-        //     // ball_reset();
-        //     ball->dirs.x = RIGHT;
 
-        // } else if (ball->sprite.x+ball->sprite.w >= game.width) {
-        //     // ball_reset();
-        //     ball->dirs.x = LEFT;
-        // } deprecated???
+        // Borders collision
+        uint8_t detect = collision_direction(game_borders, ball->sprite, &ball->dirs, 1);
 
-        collision_direction((SDL_FRect){.x = 0, .y = 0, .w = game.width, .h = game.height }, ball->sprite, &ball->dirs, 1);
+        if (detect & (COLLISION_LEFT | COLLISION_RIGHT)) {
+            if (ball->dirs.x != RIGHT) {
+                game.players[0].points += 1;
+
+            } else {
+                game.players[1].points += 1;
+            }
+            ball_reset(ball);
+            game_refresh_score();
+            game_sound_score();
+        }
         
         switch (ball->dirs.x)
         {
@@ -336,54 +301,164 @@ static void ball_move() {
 }
 
 static void player_check_ball_colission() {
-    // for (size_t i = 0; i < length(game.balls); i++) {
-    //     Ball *ball = &game.balls[i]; 
-        
-    //     for (size_t i = 0; j < length(game.players); i++) {
-    //         Player *player = &game.players[j];
-    //         if (collision_box(player->sprite, ball->sprite)) {
-    //             if (ball->sprite.y > player->sprite.y+(player->sprite.h/2)) {
-    //                 ball->dirs.y = DOWN; // ball up collision
-    //                 // player on top ball on bottom
-    //                 // ball->sprite.y = player->sprite.y + player->sprite.h;
-    //             }
-    //             else {
-    //                 ball->dirs.y = UP;
-    //             };
-    //             if (ball->sprite.x+(ball->sprite.w*0.5) > player->sprite.x+(player->sprite.w*0.5)) { // ball left collision
-    //                 ball->dirs.x = RIGHT;
-    //             }
-    //             else {
-    //                 ball->dirs.x = LEFT;
-    //             }
-    //         }
-    //     }
-    // }
-
     for (size_t i = 0; i < length(game.balls); i++) {
         Ball *ball = &game.balls[i];
         for (size_t j = 0; j < length(game.players); j++) {
             Player * player = &game.players[j];
-            collision_direction(player->sprite, ball->sprite, &game.balls->dirs, 0);
+            int direction = 0;
+            if ((direction = collision_direction(player->sprite, ball->sprite, &game.balls->dirs, 0))) {
+                if (direction & COLLISION_LEFT) {
+                    ball->sprite.x = player->sprite.x-ball->sprite.w;
+                }
+                if (direction & COLLISION_RIGHT) {
+                    ball->sprite.x = player->sprite.x+player->sprite.w;
+                }
+                if (direction & COLLISION_BOTTOM) {
+                    ball->sprite.y = player->sprite.y+player->sprite.h;
+                }
+                if (direction & COLLISION_TOP) {
+                    ball->sprite.y = player->sprite.y-ball->sprite.h;
+                }
+                game.balls->velocity[0] += 1; 
+                game.balls->velocity[1] += 1;
+                if (game.balls->velocity[0] > BALLS_MAX_SPEED) {
+                    game.balls->velocity[0] = BALLS_MAX_SPEED;
+                }
+                if (game.balls->velocity[1] > BALLS_MAX_SPEED) {
+                    game.balls->velocity[1] = BALLS_MAX_SPEED;
+                }
+            };
         }
     }
+}
+
+void game_display_score() {
+    SDL_RenderTexture(game.render, game.score, NULL, &(SDL_FRect){10, 10, game.width/2, game.height/10});
+}
+
+void game_reset() {
+
+}
+
+void game_destroy() {
+    if (game.score) {
+        SDL_DestroyTexture(game.score);
+        game.score = NULL;
+    }
+
+    if (game.font) {
+        TTF_CloseFont(game.font);
+        game.font = NULL;
+    }
+
+    if (game.render) {
+        SDL_DestroyRenderer(game.render);
+        game.render = NULL;
+    }
+
+    if (game.window) {
+        SDL_DestroyWindow(game.window);
+        game.window = NULL;
+    }
+
+    for (size_t i = 0; i < length(game.texture_buffer); i++) {
+        if (game.texture_buffer[i]) {
+            SDL_DestroyTexture(game.texture_buffer[i]);
+            game.texture_buffer[i] = NULL;
+        }
+    }
+
+}
+
+static void game_display_text(size_t index, float x, float y) {
+    SDL_FRect dst = {0};
+    SDL_GetTextureSize(game_tb(index), &dst.w, &dst.h);
+    dst.x = x - dst.w;
+    dst.y = y - dst.h;
+    if (!SDL_RenderTexture(game.render, game_tb(index), NULL, &dst)) {
+        panic("%s",SDL_GetError());
+    }
+}
+
+static void game_startscreen_setup() {
+    game_register_text("starting game....", WHITE, &game_tb(0));
+    game_register_text("3", WHITE, &game_tb(1));
+    game_register_text("2", WHITE, &game_tb(2));
+    game_register_text("1", WHITE, &game_tb(3));
+    game_register_text("GO", WHITE, &game_tb(4));
+    game_register_text("Controls", WHITE, &game_tb(5));
+    game_register_text("player 1: W,A,S,D", WHITE, &game_tb(6));
+    game_register_text("player 2: I,J,K,L", WHITE, &game_tb(7));
+}
+
+static uint64_t timer_general = 0; 
+
+static unsigned char game_startscreen() {
+
+    if (game.key_states[SDL_SCANCODE_Q]) {
+        game.running = false;
+        return 1;
+    }
+
+    uint64_t time = timer_general/FPS;
+    if (time > 9) return 0;
+
+    int mx = game.width/2;
+    int my = game.height/2;
+
+    game_display_text(5, mx, my+80);
+    game_display_text(6, mx*1.5, my+64+64);
+    game_display_text(7, mx*1.5, my+64+64+32);
+
+    if (time <=  5) {
+        game_display_text(0, mx*1.5, my);
+    } else if (time <= 6) {
+        game_display_text(1, mx, my);
+    } else if (time <= 7) {
+        game_display_text(2, mx, my);
+    } else if (time <= 8) {
+        game_display_text(3, mx, my);
+    } else if (time <= 9) {
+        game_display_text(4, mx, my);
+    } 
+    timer_general++;
+    return 1;
+}
+
+static void game_gameplay() {
+    players_move_event();
+    ball_move();
+    player_check_ball_colission();
     
 
-} 
+    ball_draw();
+    players_draw();
+
+    game_display_score();
+}
 
 int main(int argc, char *argv[]) {
     
     srand(time(NULL));
     
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
+        sdlerror:
         panic("%s", SDL_GetError());
     }
-    
+
+
     if (!SDL_CreateWindowAndRenderer("slopp ass game", DEFAULT_WIDTH, DEFAULT_HEIGHT, 0, &game.window, &game.render)) {
-        panic("%s", SDL_GetError());
+        SDL_Quit();
+        goto sdlerror;
+    }
+
+    if (!TTF_Init()) {
+        SDL_Quit();
+        goto sdlerror;
     }
     
-    gameSetup();
+    game_setup();
+    game_startscreen_setup();
     game.running = 1;
     game.key_states = (const unsigned char *)SDL_GetKeyboardState(NULL);
     
@@ -394,14 +469,11 @@ int main(int argc, char *argv[]) {
         
         eventsHandler();
 
-        
-        players_move_event();
-        player_check_ball_colission();
-        ball_move();
+        if (SKIP_INTRO || !game_startscreen()) {
+            game_gameplay();
+        }
 
 
-        ball_draw();
-        players_draw();
 
         SDL_RenderPresent(game.render);
 
@@ -411,9 +483,9 @@ int main(int argc, char *argv[]) {
             usleep((DELTA_TIME - delta) / 1000);
         }
     }
+ 
+    game_destroy();
 
-    SDL_DestroyRenderer(game.render);
-    SDL_DestroyWindow(game.window);
     SDL_Quit();
     return 0;
 }

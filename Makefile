@@ -13,7 +13,7 @@ DEPS := $(shell find . -name "*.h")
 # In SRC:(this) equal to (build/obj/this.o)
 OBJS := $(SRCS:%=$(OBJ_DIR)/%.o)
 
-LDFLAGS := $(shell pkg-config --libs sdl3)
+LDFLAGS := $(shell pkg-config --libs sdl3 sdl3-ttf)
 # INC_FLAGS := -I./include
 
 all: $(TARGET)
