@@ -116,7 +116,6 @@ void gameplay_reset() {
         .points = 0,
     };
     game_balls_create();
-
 }
 
 
@@ -472,7 +471,7 @@ static void gameplay_events() {
     #ifndef VERTICAL_POINTS
         if (p1->sprite.x+p1->sprite.w <= game.width/2) {
             key_pressed(SDL_SCANCODE_D) player_move(p1, RIGHT);
-        }.y >
+        }
         key_pressed(SDL_SCANCODE_S) player_move(p1, DOWN);
     #else
         if (p1->sprite.y+p1->sprite.h < game.height/2) {
@@ -510,6 +509,7 @@ static void gameplay_events() {
     
     key_pressed(SDL_SCANCODE_R) {
         gameplay_reset();
+        game_refresh_score();
     }
     
     
@@ -522,9 +522,6 @@ static void gameplay_events() {
 static void game_gameplay() {
     
     gameplay_events();
-    
-
-
     
     ball_draw();
     players_draw();
@@ -596,4 +593,4 @@ int main(int argc, char *argv[]) {
 
     SDL_Quit();
     return 0;
-}.y >
+}
