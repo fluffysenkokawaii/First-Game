@@ -25,6 +25,8 @@ static struct {
     SDL_AudioStream* audio_stream; 
     SDL_AudioSpec audio_spec;
     SDL_Texture * texture_buffer[10];
+    Screen current_screen;
+    Timers timer;
 } game = {0};
 
 static inline Color color_pick_random() {
@@ -56,34 +58,67 @@ static const uint64_t getTimeInNano() {
     return (SEC_IN_NANO * time.tv_sec) + time.tv_nsec;
 }
 
-
-static inline void player_move(Player * const p, const SDL_Scancode up, const SDL_Scancode left, const SDL_Scancode right, const SDL_Scancode down) { 
-    if (game.key_states[up]) {
+static inline void player_move(Player * const p, Direction2d dir) { 
+    switch (dir)
+    {
+    case UP:
         p->sprite.y -= p->velocity;  
-    }
-    
-    if (game.key_states[left]) { 
+        break;
+    case LEFT:
         p->sprite.x -= p->velocity;
-    }  
-    
-    if (game.key_states[right]) {
+        break;
+    case RIGHT:
         p->sprite.x += p->velocity;
-    }
-
-    if (game.key_states[down]) {
+        break;
+    case DOWN:
         p->sprite.y += p->velocity;
+        break;
+    default:
+        break;
     }
-    
 }
 
-static void players_move_event() {
+static void game_balls_create() {
+    for (size_t i = 0; i < BALL_QUANTITY; i++ ) {
+        game.balls[i] = (Ball) { 
+            .sprite = (SDL_FRect) {.w = BALL_WIDTH, .h = BALL_HEIGHT, .x=game.width/2-BALL_WIDTH, .y=game.height/2-BALL_HEIGHT},
+            .color = BALLS_COLOR,
+            .dirs = {direction_pick_randomX(), direction_pick_randomY()},
+            .velocity = {pick_random(1, 5), pick_random(1, 5)}
+        };
+    }
+}
 
-    player_move(&game.players[0], SDL_SCANCODE_W, SDL_SCANCODE_A, SDL_SCANCODE_D, SDL_SCANCODE_S);
-    player_move(&game.players[1], SDL_SCANCODE_I, SDL_SCANCODE_J, SDL_SCANCODE_L, SDL_SCANCODE_K);
-    
-    if (game.key_states[SDL_SCANCODE_Q]) 
-        game.running = false;
-}  
+void gameplay_reset() {
+    const int w = game.width;
+    const int h = game.height; 
+    const float pw = PLAYERS_W;
+    const float ph = PLAYERS_H;
+
+    game.players[0] = (Player){
+        #ifndef VERTICAL_POINTS
+        .sprite = (SDL_FRect) {.w = pw, .h = ph, .x = w/6 - pw/2, .y = h/2 - ph/2},
+        #else
+        .sprite = (SDL_FRect) {.w = pw, .h = ph, .x = w/2 - pw/2, .y = h/6 - ph/2},
+        #endif
+        .color = PLAYER_1_COLOR,
+        .velocity = PLAYERS_VELOCITY,
+        .points = 0,
+    };
+    game.players[1] = (Player){
+        #ifndef VERTICAL_POINTS
+        .sprite = (SDL_FRect) {.w = pw, .h = ph, .x = w - pw*2 , .y = h/2 - ph/2},
+        #else
+        .sprite = (SDL_FRect) {.w = pw, .h = ph, .x = w/2 - pw/2 , .y = h - ph*1.5},
+        #endif
+        .color = PLAYER_2_COLOR,
+        .velocity = PLAYERS_VELOCITY,
+        .points = 0,
+    };
+    game_balls_create();
+
+}
+
 
 static void eventsHandler() {
     SDL_PumpEvents();
@@ -96,7 +131,7 @@ static void eventsHandler() {
 //             a.y+a.h > b.y);    // ----------
 // }
 
-static inline unsigned char collision_direction(SDL_FRect r1, SDL_FRect r2, Directions2d *dirs, unsigned char reverse) {
+static inline unsigned char collision_direction(SDL_FRect r1, SDL_FRect r2, Directions2d *dirs) {
     float top = r1.y;
     float bottom = r1.y+r1.h;
     float higher = r2.y;
@@ -111,36 +146,27 @@ static inline unsigned char collision_direction(SDL_FRect r1, SDL_FRect r2, Dire
 
     if ((xdot < lefter && lefter < xdotfinnish) || (lefter < xdot && xdot < righter)) {
         if (higher < top && top < downer) {
-            dirs->y = UP + reverse;
+            dirs->y = UP;
             ret += 1;
         } else if (higher < bottom && bottom < downer) {
-            dirs->y = DOWN - reverse;
+            dirs->y = DOWN;
             ret += 2;
         }
     }
 
     if ((top < higher && higher < bottom) || (higher < top && top < downer)) {
         if (xdot < righter && righter < xdotfinnish) {
-            dirs->x = RIGHT - reverse;
+            dirs->x = RIGHT;
             ret += 4; 
         } else if (xdot < lefter && lefter < xdotfinnish) {
-            dirs->x = LEFT + reverse;
+            dirs->x = LEFT;
             ret += 8;
         } 
     }
     return ret;
 } 
 
-static void game_create_balls() {
-    for (size_t i = 0; i < BALL_QUANTITY; i++ ) {
-        game.balls[i] = (Ball) { 
-            .sprite = (SDL_FRect) {.w = 50, .h = 50, .x=game.width/2-50, .y=game.height/2-50 },
-            .color = BALLS_COLOR,
-            .dirs = {direction_pick_randomX(), direction_pick_randomY()},
-            .velocity = {pick_random(1, 5), pick_random(1, 5)}
-        };
-    }
-}
+
 
 static void game_sound_score() {
     if (!SDL_PutAudioStreamData(game.audio_stream, game.sound.data, game.sound.size)) {
@@ -173,30 +199,9 @@ static void game_register_text(const char *text, Color color, SDL_Texture** buf)
 
 
 static void game_setup() {
-    int w, h = 0;
-    SDL_GetWindowSize(game.window, &w, &h);
-    game.width = w;
-    game.height = h;
-    float pw = PLAYERS_W;
-    float ph = PLAYERS_H;
+    SDL_GetWindowSize(game.window, &game.width, &game.height);
 
-    game.players[0] = (Player){
-        .life = 100,
-        .dir = FREEZE,
-        .sprite = (SDL_FRect) {.w = pw, .h = ph, .x = w/100, .y = h/100},
-        .color = PLAYER_1_COLOR,
-        .velocity = PLAYERS_VELOCITY,
-        .points = 0,
-    };
-    game.players[1] = (Player){
-        .life = 100,
-        .dir = FREEZE,
-        .sprite = (SDL_FRect) {.w = pw, .h = ph, .x = w-200 , .y = h-200},
-        .color = PLAYER_2_COLOR,
-        .velocity = PLAYERS_VELOCITY,
-        .points = 0,
-    };
-    game_create_balls();
+    gameplay_reset();
   
     game.font = TTF_OpenFont("./fonts/DepartureMonoNerdFontPropo-Regular.otf", 32);
     if (game.font == NULL) {
@@ -252,31 +257,10 @@ static void ball_reset(Ball* ball) {
     ball->color = BALLS_COLOR;
 }
 
-static void ball_move() {
-
-    const SDL_FRect game_borders = (SDL_FRect){.x = 0, .y = 0, .w = game.width, .h = game.height };
-
-    for (int i = 0; i < length(game.balls); i++) {
-        Ball *ball = &game.balls[i];
-
-        // Borders collision
-        uint8_t detect = collision_direction(game_borders, ball->sprite, &ball->dirs, 1);
-
-        if (detect & (COLLISION_LEFT | COLLISION_RIGHT)) {
-            if (ball->dirs.x != RIGHT) {
-                game.players[0].points += 1;
-
-            } else {
-                game.players[1].points += 1;
-            }
-            ball_reset(ball);
-            game_refresh_score();
-            game_sound_score();
-        }
-        
+static void ball_move(Ball* ball){
         switch (ball->dirs.x)
         {
-        case LEFT:
+        case LEFT: 
             ball->sprite.x -= ball->velocity[0];
             break;
         case RIGHT:
@@ -296,37 +280,92 @@ static void ball_move() {
         default:
             break;
         }
+}
+
+static void balls_move() {
+
+    for (int i = 0; i < length(game.balls); i++) {
+        Ball *ball = &game.balls[i];
+        // Borders collision
+        if (ball->sprite.x < 0) {
+            // left
+            ball->dirs.x = RIGHT;
+            #ifndef VERTICAL_POINTS   
+            game.players[1].points++;
+            goto refresh;
+            #endif
+        } else if (ball->sprite.x+ball->sprite.w > game.width) {
+            // right
+            ball->dirs.x = LEFT;
+            
+            #ifndef VERTICAL_POINTS
+            game.players[0].points++;
+            goto refresh;
+            #endif
+        }
+        if (ball->sprite.y < 0) {
+            // up
+            ball->dirs.y = DOWN;
+
+            #ifdef VERTICAL_POINTS
+            game.players[1].points++;
+            goto refresh;
+            #endif
+        }
+        else if (ball->sprite.y+ball->sprite.h > game.height) {
+            // down
+            ball->dirs.y = UP;
+    
+            #ifdef VERTICAL_POINTS
+            game.players[0].points++;
+            goto refresh;
+            #endif
+        }
+
+        if(0) {
+            refresh:
+                ball_reset(ball);
+                game_refresh_score();
+                game_sound_score();
+        }
+
+        if (game.key_states[SDL_SCANCODE_0]) {
+            debug("Ball position: x: %f, y: %f", ball->sprite.x, ball->sprite.y);
+        }
+
+        ball_move(ball);
+
         
     }
 }
 
-static void player_check_ball_colission() {
+static void player_ball_colission() {
     for (size_t i = 0; i < length(game.balls); i++) {
         Ball *ball = &game.balls[i];
         for (size_t j = 0; j < length(game.players); j++) {
             Player * player = &game.players[j];
-            int direction = 0;
-            if ((direction = collision_direction(player->sprite, ball->sprite, &game.balls->dirs, 0))) {
+            DirectionCollision direction;
+            if ((direction = collision_direction(player->sprite, ball->sprite, &ball->dirs))) {
+                // // player based
                 if (direction & COLLISION_LEFT) {
-                    ball->sprite.x = player->sprite.x-ball->sprite.w;
+                    ball->sprite.x += player->sprite.x - (ball->sprite.x + ball->sprite.w);
+                } else if (direction & COLLISION_RIGHT) {
+                    ball->sprite.x += player->sprite.x+player->sprite.w - ball->sprite.x; 
+                } else if (direction & COLLISION_BOTTOM) {
+                    ball->sprite.y -= ball->sprite.y - (player->sprite.y+player->sprite.h);
+                } else if (direction & COLLISION_TOP) {
+                    ball->sprite.y += player->sprite.y - (ball->sprite.y+ball->sprite.h);
                 }
-                if (direction & COLLISION_RIGHT) {
-                    ball->sprite.x = player->sprite.x+player->sprite.w;
+                
+                ball->velocity[0] += player->velocity*0.1f;
+                ball->velocity[1] += player->velocity*0.1f;
+                if (ball->velocity[0] > BALLS_MAX_SPEED) {
+                    ball->velocity[0] = BALLS_MAX_SPEED;
                 }
-                if (direction & COLLISION_BOTTOM) {
-                    ball->sprite.y = player->sprite.y+player->sprite.h;
+                if (ball->velocity[1] > BALLS_MAX_SPEED) {
+                    ball->velocity[1] = BALLS_MAX_SPEED;
                 }
-                if (direction & COLLISION_TOP) {
-                    ball->sprite.y = player->sprite.y-ball->sprite.h;
-                }
-                game.balls->velocity[0] += 1; 
-                game.balls->velocity[1] += 1;
-                if (game.balls->velocity[0] > BALLS_MAX_SPEED) {
-                    game.balls->velocity[0] = BALLS_MAX_SPEED;
-                }
-                if (game.balls->velocity[1] > BALLS_MAX_SPEED) {
-                    game.balls->velocity[1] = BALLS_MAX_SPEED;
-                }
+
             };
         }
     }
@@ -336,9 +375,6 @@ void game_display_score() {
     SDL_RenderTexture(game.render, game.score, NULL, &(SDL_FRect){10, 10, game.width/2, game.height/10});
 }
 
-void game_reset() {
-
-}
 
 void game_destroy() {
     if (game.score) {
@@ -391,17 +427,17 @@ static void game_startscreen_setup() {
     game_register_text("player 2: I,J,K,L", WHITE, &game_tb(7));
 }
 
-static uint64_t timer_general = 0; 
-
-static unsigned char game_startscreen() {
+static void game_startscreen() {
 
     if (game.key_states[SDL_SCANCODE_Q]) {
         game.running = false;
-        return 1;
     }
 
-    uint64_t time = timer_general/FPS;
-    if (time > 9) return 0;
+    uint64_t time = game.timer.general/FPS;
+    if (time > 9) {
+        game.current_screen = SCREEN_GAME;
+        game.timer.general = 0;
+    };
 
     int mx = game.width/2;
     int my = game.height/2;
@@ -421,19 +457,78 @@ static unsigned char game_startscreen() {
     } else if (time <= 9) {
         game_display_text(4, mx, my);
     } 
-    timer_general++;
-    return 1;
+
+    game.timer.general++;
 }
 
+static void gameplay_events() {
+    #define key_pressed(key) if (game.key_states[key]) 
+
+    Player *p1 = &game.players[0];
+    Player *p2 = &game.players[1];
+
+    key_pressed(SDL_SCANCODE_W) player_move(p1, UP);
+
+    #ifndef VERTICAL_POINTS
+        if (p1->sprite.x+p1->sprite.w <= game.width/2) {
+            key_pressed(SDL_SCANCODE_D) player_move(p1, RIGHT);
+        }.y >
+        key_pressed(SDL_SCANCODE_S) player_move(p1, DOWN);
+    #else
+        if (p1->sprite.y+p1->sprite.h < game.height/2) {
+            key_pressed(SDL_SCANCODE_S) player_move(p1, DOWN);
+        }
+        key_pressed(SDL_SCANCODE_D) player_move(p1, RIGHT);
+    #endif
+    
+    key_pressed(SDL_SCANCODE_A) player_move(p1, LEFT);
+    
+    
+    
+    
+    // p2
+
+    #ifndef VERTICAL_POINTS
+        key_pressed(SDL_SCANCODE_I) player_move(p2, UP);
+        if (p2->sprite.x >= game.width/2) {
+            key_pressed(SDL_SCANCODE_J) player_move(p2, LEFT);
+        }
+    #else
+        if (p2->sprite.y > game.height/2) {
+            key_pressed(SDL_SCANCODE_I) player_move(p2, UP);
+        }
+        key_pressed(SDL_SCANCODE_J) player_move(p2, LEFT);
+
+    #endif
+    
+    key_pressed(SDL_SCANCODE_L) player_move(p2, RIGHT);
+    key_pressed(SDL_SCANCODE_K) player_move(p2, DOWN);
+ 
+    
+    if (game.key_states[SDL_SCANCODE_Q]) 
+    game.running = false;
+    
+    key_pressed(SDL_SCANCODE_R) {
+        gameplay_reset();
+    }
+    
+    
+    
+    balls_move();
+    player_ball_colission();
+}  
+
+
 static void game_gameplay() {
-    players_move_event();
-    ball_move();
-    player_check_ball_colission();
+    
+    gameplay_events();
     
 
+
+    
     ball_draw();
     players_draw();
-
+    
     game_display_score();
 }
 
@@ -469,9 +564,22 @@ int main(int argc, char *argv[]) {
         
         eventsHandler();
 
-        if (SKIP_INTRO || !game_startscreen()) {
+        switch (game.current_screen)
+        {
+        case SCREEN_INTRO:
+            if (SKIP_INTRO) {
+                game.current_screen = SCREEN_GAME;
+                break;
+            }
+            game_startscreen();    
+            break;
+        case SCREEN_GAME:
             game_gameplay();
+            break;
+        default:
+            break;
         }
+        
 
 
 
@@ -488,4 +596,4 @@ int main(int argc, char *argv[]) {
 
     SDL_Quit();
     return 0;
-}
+}.y >

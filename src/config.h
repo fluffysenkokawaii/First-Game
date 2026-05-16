@@ -27,13 +27,19 @@ static const Color colors[] = {
 
 #define FPS 60 
 #define SKIP_INTRO 1
-#define PLAYERS_VELOCITY 10.0f
-#define PLAYERS_W w/10.0f
-#define PLAYERS_H h/2.0f
+#define PLAYERS_VELOCITY 10
+#define PLAYERS_W 20.0f
+#define PLAYERS_H 100.0f
 #define DEFAULT_WIDTH 640
 #define DEFAULT_HEIGHT 480
 #define BALLS_MAX_SPEED 10
 #define BALL_QUANTITY 1
+#define BALL_WIDTH  50
+#define BALL_HEIGHT 50
+
+// #define VERTICAL_POINTS
+
+
 
 #define PLAYER_1_COLOR WHITE
 #define PLAYER_2_COLOR WHITE
@@ -41,4 +47,13 @@ static const Color colors[] = {
 
 #define AUDIO_FILE "fumo.wav"
 
+
+
+#ifndef VERTICAL_POINTS
+static_assert(BALLS_MAX_SPEED < PLAYERS_W, "for prevent ball cliping bugs");
+static_assert(PLAYERS_VELOCITY < BALL_WIDTH, "for prevent ball cliping bugs");
+#else
+static_assert(BALLS_MAX_SPEED < PLAYERS_H, "for prevent ball cliping bugs");
+static_assert(PLAYERS_VELOCITY < BALL_HEIGHT, "for prevent ball cliping bugs");
+#endif
 #endif

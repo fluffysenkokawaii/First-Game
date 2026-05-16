@@ -38,6 +38,7 @@ typedef enum {
 
 
 typedef enum {
+    COLLISSION_NONE = 0,
     COLLISION_TOP = 1,
     COLLISION_BOTTOM = 2,
     COLLISION_RIGHT = 4,
@@ -52,7 +53,6 @@ typedef struct {
 
 typedef struct Player {
     uint8_t life;
-    Direction2d dir;
     SDL_FRect sprite;
     Color color;
     float velocity;
@@ -71,5 +71,15 @@ typedef struct {
     uint32_t size;
 } Sound;
 
+
+typedef enum {
+    SCREEN_INTRO,
+    SCREEN_GAME,
+} Screen;
+
+
+typedef struct {
+    uint64_t general;
+} Timers;
 
 #endif
