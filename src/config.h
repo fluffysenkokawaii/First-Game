@@ -26,7 +26,7 @@ static const Color colors[] = {
 
 
 #define FPS 60 
-#define SKIP_INTRO 1
+#define SKIP_INTRO 0
 #define PLAYERS_VELOCITY 10
 #define PLAYERS_W 20.0f
 #define PLAYERS_H 100.0f

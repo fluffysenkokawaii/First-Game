@@ -424,6 +424,7 @@ static void game_startscreen_setup() {
     game_register_text("Controls", WHITE, &game_tb(5));
     game_register_text("player 1: W,A,S,D", WHITE, &game_tb(6));
     game_register_text("player 2: I,J,K,L", WHITE, &game_tb(7));
+    game_register_text("R = restart", WHITE, &game_tb(8));
 }
 
 static void game_startscreen() {
@@ -444,6 +445,7 @@ static void game_startscreen() {
     game_display_text(5, mx, my+80);
     game_display_text(6, mx*1.5, my+64+64);
     game_display_text(7, mx*1.5, my+64+64+32);
+    game_display_text(8, mx*1.2, my+64+64+32+64);
 
     if (time <=  5) {
         game_display_text(0, mx*1.5, my);
